@@ -1,14 +1,18 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '@/components/AuthProvider';
 import { db } from '@/lib/firebase';
 import { handleFirestoreError, OperationType } from '@/lib/firestore-errors';
 import { doc, getDoc, updateDoc, collection, query, getDocs, setDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ArrowLeft, Plus, Save, Trash2, FileSpreadsheet } from 'lucide-react';
+import { ArrowLeft, Plus, Save, Trash2, FileSpreadsheet, Download, FileText } from 'lucide-react';
 import Link from 'next/link';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import { valorPorExtenso } from '@/lib/extenso';
+import * as XLSX from 'xlsx';
 
 interface Bid {
   id: string;
@@ -27,6 +31,7 @@ interface Bid {
 
 interface BidItem {
   id: string;
+  description: string;
   manufacturer: string;
   quantity: number;
   unitValue: number;
@@ -89,7 +94,9 @@ export default function BiddingManager({ bidId }: { bidId: string }) {
 
   useEffect(() => {
     if (user && bidId) {
-      loadData();
+      setTimeout(() => {
+        loadData();
+      }, 0);
     }
   }, [user, bidId, loadData]);
 
@@ -111,6 +118,7 @@ export default function BiddingManager({ bidId }: { bidId: string }) {
     
     // Add locally immediately with a string for UI render
     const localItem = {
+      description: '',
       manufacturer: '',
       quantity: 1,
       unitValue: 0,
@@ -173,6 +181,150 @@ export default function BiddingManager({ bidId }: { bidId: string }) {
       }
   };
 
+  const generatePDF = () => {
+    const defaultDoc = new jsPDF('landscape');
+    const margins = { top: 20, bottom: 20, left: 10, right: 10 };
+
+    defaultDoc.setFontSize(16);
+    defaultDoc.text(`Formação de Preço - ${bid?.title || 'Licitação'}`, margins.left, margins.top);
+
+    const tableColumn = [
+      "Item",
+      "Descrição",
+      "Marca",
+      "Qtd",
+      "V. Unit",
+      "V. Tot. Dir.",
+      "ICMS/Simp",
+      "PIS",
+      "COFINS",
+      "IPI",
+      "ISS",
+      "Trans",
+      "Gar",
+      "MARG",
+      "Mark-up",
+      "V. Unit Final",
+      "V. Tot Final",
+    ];
+
+    const tableRows: any[][] = [];
+
+    items.forEach((item, index) => {
+      const c = calcRow(item);
+      const row = [
+        (index + 1).toString(),
+        item.description,
+        item.manufacturer,
+        item.quantity.toString(),
+        `R$ ${item.unitValue.toFixed(2)}`,
+        `R$ ${c.valorOriginalTotal.toFixed(2)}`,
+        `${item.icms}%`,
+        `${item.pis}%`,
+        `${item.cofins}%`,
+        `${item.ipi}%`,
+        `${item.iss}%`,
+        `${item.transport}%`,
+        `${item.warranty}%`,
+        `${item.margin}%`,
+        c.markUp.toFixed(5),
+        `R$ ${c.unitTotal.toFixed(2)}`,
+        `R$ ${c.finalTotal.toFixed(2)}`,
+      ];
+      tableRows.push(row);
+    });
+
+    autoTable(defaultDoc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 30,
+      styles: { fontSize: 8, cellPadding: 1, overflow: 'linebreak' },
+      headStyles: { fillColor: [40, 40, 40] },
+      margin: margins,
+    });
+
+    defaultDoc.save(`${bid?.title || 'licitacao'}.pdf`);
+  };
+
+  const generateProposalPDF = () => {
+    const doc = new jsPDF('portrait');
+    const margins = { top: 20, bottom: 20, left: 10, right: 10 };
+
+    doc.setFontSize(16);
+    doc.text(`Proposta - ${bid?.title || 'Licitação'}`, margins.left, margins.top);
+
+    const tableColumn = [
+      "Descrição do Produto",
+      "Marca",
+      "QTD",
+      "Valor Unit Final",
+      "Valor Total"
+    ];
+
+    const tableRows: any[][] = [];
+
+    items.forEach((item) => {
+      const c = calcRow(item);
+      const Extenso = valorPorExtenso(c.finalTotal);
+      
+      const row1 = [
+        item.description,
+        item.manufacturer,
+        item.quantity.toString(),
+        `R$ ${c.unitTotal.toFixed(2)}`,
+        `R$ ${c.finalTotal.toFixed(2)}`
+      ];
+      tableRows.push(row1);
+      
+      const row2 = [
+        { content: `Total por extenso: ${Extenso}`, colSpan: 5, styles: { fontStyle: 'italic', textColor: [100, 100, 100] } }
+      ];
+      tableRows.push(row2);
+    });
+
+    autoTable(doc, {
+      head: [tableColumn],
+      body: tableRows,
+      startY: 30,
+      styles: { fontSize: 9, cellPadding: 2, overflow: 'linebreak' },
+      headStyles: { fillColor: [40, 40, 40] },
+      margin: margins,
+    });
+
+    doc.save(`${bid?.title || 'proposta'}_proposta.pdf`);
+  };
+
+  const exportXlsx = () => {
+    const data: any[] = [];
+    
+    items.forEach((item, index) => {
+      const c = calcRow(item);
+      const Extenso = valorPorExtenso(c.finalTotal);
+      
+      data.push({
+        'Item': index + 1,
+        'Descrição do Produto': item.description,
+        'Marca': item.manufacturer,
+        'QTD': item.quantity,
+        'Valor Unit Final': `R$ ${c.unitTotal.toFixed(2)}`,
+        'Valor Total': `R$ ${c.finalTotal.toFixed(2)}`
+      });
+      data.push({
+         'Item': '',
+         'Descrição do Produto': `Total por extenso: ${Extenso}`,
+         'Marca': '',
+         'QTD': '',
+         'Valor Unit Final': '',
+         'Valor Total': ''
+      });
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Proposta");
+    XLSX.writeFile(wb, `${bid?.title || 'proposta'}.xlsx`);
+  };
+
   const calcRow = (item: BidItem) => {
     const valorOriginalTotal = item.quantity * item.unitValue;
     const somatorioPerc = (item.icms + item.pis + item.cofins + item.ipi + item.iss + item.transport + item.warranty + item.margin);
@@ -202,22 +354,53 @@ export default function BiddingManager({ bidId }: { bidId: string }) {
     };
   };
 
+  const aggregates = useMemo(() => {
+    return items.reduce((acc, item) => {
+      const c = calcRow(item);
+      return {
+        aggOriginalTotal: acc.aggOriginalTotal + (item.quantity * item.unitValue),
+        aggFinalTotal: acc.aggFinalTotal + c.finalTotal,
+        aggIcms: acc.aggIcms + c.vIcms,
+        aggPis: acc.aggPis + c.vPis,
+        aggCofins: acc.aggCofins + c.vCofins,
+        aggIpi: acc.aggIpi + c.vIpi,
+        aggIss: acc.aggIss + c.vIss,
+        aggTrans: acc.aggTrans + c.vTrans,
+        aggGar: acc.aggGar + c.vGar,
+        aggMargin: acc.aggMargin + c.vMargin,
+      };
+    }, {
+      aggOriginalTotal: 0,
+      aggFinalTotal: 0,
+      aggIcms: 0,
+      aggPis: 0,
+      aggCofins: 0,
+      aggIpi: 0,
+      aggIss: 0,
+      aggTrans: 0,
+      aggGar: 0,
+      aggMargin: 0,
+    });
+  }, [items]);
+
   if (loading || !bid) {
     return <div className="p-8 text-center text-gray-600 font-mono">Carregando Planilha...</div>;
   }
 
-  const aggOriginalTotal = items.reduce((acc, item) => acc + (item.quantity * item.unitValue), 0);
-  const aggFinalTotal = items.reduce((acc, item) => acc + calcRow(item).finalTotal, 0);
-
-  const aggIcms = items.reduce((acc, item) => acc + calcRow(item).vIcms, 0);
-  const aggPis = items.reduce((acc, item) => acc + calcRow(item).vPis, 0);
-  const aggCofins = items.reduce((acc, item) => acc + calcRow(item).vCofins, 0);
-  const aggIpi = items.reduce((acc, item) => acc + calcRow(item).vIpi, 0);
-  const aggIss = items.reduce((acc, item) => acc + calcRow(item).vIss, 0);
+  const {
+    aggOriginalTotal,
+    aggFinalTotal,
+    aggIcms,
+    aggPis,
+    aggCofins,
+    aggIpi,
+    aggIss,
+    aggTrans,
+    aggGar,
+    aggMargin
+  } = aggregates;
+  
   const aggImposto = aggIcms + aggPis + aggCofins + aggIpi + aggIss;
-  const aggTrans = items.reduce((acc, item) => acc + calcRow(item).vTrans, 0);
-  const aggGar = items.reduce((acc, item) => acc + calcRow(item).vGar, 0);
-  const aggMargin = items.reduce((acc, item) => acc + calcRow(item).vMargin, 0);
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
@@ -239,6 +422,15 @@ export default function BiddingManager({ bidId }: { bidId: string }) {
             </div>
           </div>
           <div className="flex items-center gap-3">
+             <Button variant="outline" className="bg-white/10 text-white border-white/20 hover:bg-white/20 border-0" onClick={exportXlsx}>
+               <FileSpreadsheet className="mr-2 h-4 w-4" /> Proposta XLS
+             </Button>
+             <Button variant="outline" className="bg-white/10 text-white border-white/20 hover:bg-white/20 border-0" onClick={generateProposalPDF}>
+               <FileText className="mr-2 h-4 w-4" /> Proposta PDF
+             </Button>
+             <Button variant="outline" className="bg-white/10 text-white border-white/20 hover:bg-white/20 border-0" onClick={generatePDF}>
+               <Download className="mr-2 h-4 w-4" /> Gerar PDF
+             </Button>
              <Button variant="outline" className="bg-white/10 text-white border-white/20 hover:bg-white/20 border-0" onClick={addItem}>
                <Plus className="mr-2 h-4 w-4" /> Adicionar Item
              </Button>
@@ -308,7 +500,8 @@ export default function BiddingManager({ bidId }: { bidId: string }) {
                <div className="min-w-max pb-32">
                  <div className="flex bg-gray-300 border-b-2 border-black sticky top-0 z-10 text-[11px] font-bold items-end text-center uppercase tracking-tighter divide-x divide-gray-400 shadow-sm leading-tight">
                     <div className="w-12 shrink-0 bg-gray-400 p-2 border-r border-black flex items-center justify-center">#</div>
-                    <div className="w-64 shrink-0 p-2 text-left">Fabricante / Item</div>
+                    <div className="w-64 shrink-0 p-2 text-left">Descrição</div>
+                    <div className="w-48 shrink-0 p-2 text-left">Marca</div>
                     <div className="w-20 shrink-0 p-2">Qtd</div>
                     <div className="w-32 shrink-0 p-2 text-right">Vlr. Unitário</div>
                     <div className="w-32 shrink-0 p-2 bg-gray-200 text-right">Vlr. Total Dir.</div>
@@ -349,7 +542,8 @@ export default function BiddingManager({ bidId }: { bidId: string }) {
                                </Button>
                                <span className="group-hover:hidden">{index + 1}</span>
                             </div>
-                            <div className="w-64 shrink-0"><Input className="h-8 border-none rounded-none w-full text-xs uppercase shadow-none focus-visible:ring-1" value={item.manufacturer} onChange={e => updateItem(item.id, 'manufacturer', e.target.value)} /></div>
+                            <div className="w-64 shrink-0"><Input className="h-8 border-none rounded-none w-full text-xs shadow-none focus-visible:ring-1" value={item.description} onChange={e => updateItem(item.id, 'description', e.target.value)} /></div>
+                            <div className="w-48 shrink-0"><Input className="h-8 border-none rounded-none w-full text-xs uppercase shadow-none focus-visible:ring-1" value={item.manufacturer} onChange={e => updateItem(item.id, 'manufacturer', e.target.value)} /></div>
                             <div className="w-20 shrink-0"><Input className="h-8 border-none shadow-none focus-visible:ring-1 bg-blue-50/50 rounded-none w-full text-center font-mono font-bold" type="number" value={item.quantity} onChange={e => updateItem(item.id, 'quantity', Number(e.target.value))} /></div>
                             <div className="w-32 shrink-0"><Input className="h-8 border-none shadow-none focus-visible:ring-1 bg-green-50/50 rounded-none w-full text-right font-mono" type="number" value={item.unitValue} onChange={e => updateItem(item.id, 'unitValue', Number(e.target.value))} /></div>
                             <div className="w-32 shrink-0 text-right px-3 text-gray-500 font-mono">R$ {c.valorOriginalTotal.toFixed(2)}</div>

@@ -3,12 +3,13 @@
 import { useAuth } from '@/components/AuthProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
-import { Loader2, Plus, FileSpreadsheet, Trash2 } from 'lucide-react';
-import { useEffect, useState, useCallback } from 'react';
+import { Loader2, Plus, FileSpreadsheet, Trash2, Import } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { collection, query, where, getDocs, setDoc, doc, deleteDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { handleFirestoreError, OperationType } from '@/lib/firestore-errors';
 import Link from 'next/link';
+import * as XLSX from 'xlsx';
 
 interface Bid {
   id: string;
@@ -29,6 +30,8 @@ export default function Home() {
   const { user, loading, signIn, logOut, signInWithEmail, signUpWithEmail } = useAuth();
   const [bids, setBids] = useState<Bid[]>([]);
   const [isLoadingBids, setIsLoadingBids] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -63,7 +66,9 @@ export default function Home() {
 
   useEffect(() => {
     if (user) {
-        fetchBids();
+        setTimeout(() => {
+            fetchBids();
+        }, 0);
     }
   }, [user, fetchBids]);
 
