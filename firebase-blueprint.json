@@ -1,0 +1,54 @@
+{
+  "entities": {
+    "Bid": {
+      "title": "Bid",
+      "description": "Represents a bidding project/spreadsheet",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Name of the bid project" },
+        "ownerId": { "type": "string", "description": "UID of the user who owns this bid" },
+        "globalTransport": { "type": "number" },
+        "globalWarranty": { "type": "number" },
+        "globalIcms": { "type": "number" },
+        "globalPis": { "type": "number" },
+        "globalCofins": { "type": "number" },
+        "globalIpi": { "type": "number" },
+        "globalIss": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "ownerId", "globalTransport", "globalWarranty", "globalIcms", "globalPis", "globalCofins", "globalIpi", "globalIss", "createdAt", "updatedAt"]
+    },
+    "BidItem": {
+      "title": "Bid Item",
+      "description": "A single row/item in the bidding spreadsheet",
+      "type": "object",
+      "properties": {
+        "manufacturer": { "type": "string" },
+        "quantity": { "type": "number" },
+        "unitValue": { "type": "number" },
+        "icms": { "type": "number" },
+        "pis": { "type": "number" },
+        "cofins": { "type": "number" },
+        "ipi": { "type": "number" },
+        "iss": { "type": "number" },
+        "transport": { "type": "number" },
+        "warranty": { "type": "number" },
+        "margin": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["manufacturer", "quantity", "unitValue", "icms", "pis", "cofins", "ipi", "iss", "transport", "warranty", "margin", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/bids/{bidId}": {
+      "schema": { "$ref": "#/entities/Bid" },
+      "description": "Bidding projects"
+    },
+    "/bids/{bidId}/items/{itemId}": {
+      "schema": { "$ref": "#/entities/BidItem" },
+      "description": "Items within a bidding project"
+    }
+  }
+}
